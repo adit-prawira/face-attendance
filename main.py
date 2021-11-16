@@ -4,7 +4,9 @@ import face_recognition
 import os
 from datetime import datetime
 from urllib.request import urlopen
+from dotenv import load_dotenv
 import urllib.request
+load_dotenv()
 path = "resources"
 targetImages = []
 classNames = []
@@ -39,6 +41,8 @@ def markAttendance(name):
             file.writelines(f"\n{name}, {dateString}")
 encodedTargetFaces = findEncoding(targetImages)
 
+# print(os.environ["AWS_ACCESS_KEY"])
+# print(os.environ["AWS_REGION"])
 cap = cv2.VideoCapture(CAMERA_CODE)
 while True:
     try:
@@ -55,7 +59,7 @@ while True:
             faceDistances = face_recognition.face_distance(encodedTargetFaces, encodedFace) # array of face distance to each corresponding encoded target face
             matchIndex = np.argmin(faceDistances) # get the index of the lowest faceDistance value
             minimumDistance = faceDistances[matchIndex]
-            print(matches)
+
             if matches[matchIndex]:
                 nameThatMatch = classNames[matchIndex]
                 top, right, bottom, left = faceLocation[0]*4, faceLocation[1]*4, faceLocation[2]*4, faceLocation[3]*4
