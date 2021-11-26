@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 import re
 from utils.aws_s3_config import AwsS3Image
 from utils.custom_utils import getClassNameAndEncodings, renderRectangleAndText
+from utils.voice_assistant import VoiceAssistant
+from time import sleep
 load_dotenv()
 
 accessKey = os.environ.get("AWS_ACCESS_KEY")
@@ -17,14 +19,49 @@ bucketName = os.environ.get("AWS_BUCKET_NAME")
 classNames, encodedTargetFaces = getClassNameAndEncodings()
 cap = cv2.VideoCapture(int(os.environ.get("LAPTOP_CAM_CODE")))
 s3Uploader = AwsS3Image(accessKey, secretKey, bucketName, region)
+voice = VoiceAssistant()
 
 # flags for data state and system flow management
 detectUnrecognizedFace = False
 readyToSafe = False
 name = ""
-
+triggerVoice = False
 while True:
     try:
+        key = cv2.waitKey(1) & 0xFF  # define key variable for any keyboard event
+        if key == ord('q'):  # break the look when user press q
+            break
+        elif triggerVoice and detectUnrecognizedFace:
+
+            # when the system detect an unrecognized face and when user press 'a'
+            # the bot will ask the face's owner name
+            # print("I don't I have met you yet.")
+            # print("What is your name?")
+            print("Voice Assistant Activate")
+            voice.speak("Hey, I don't think we have met yet.")
+            voice.speak("What is your name?")
+            name = voice.getAudio()
+            voice.speak(f"Please wait {name}. I'm attempting to memorize your face")
+            readyToSafe = True  # set the flag that data is ready to be safe
+
+            # set the flag the let the system know that the face's owner is not that unrecognizable
+            detectUnrecognizedFace = False
+            continue  # go back to the start of the while loop
+        elif key == ord('s') and readyToSafe:
+            # when data is ready to be safe, the bot will ask the user to stay still for it to remember out face
+            print("Ready To Upload")
+            fileName = re.sub("\s+", "-", name.lower().strip())
+            fileLoc = "resources/" + fileName + ".png"
+            cv2.imwrite(fileLoc, image)  # temporarily create a png file to resources folder
+
+            if os.path.exists(fileLoc):
+                # refer the file from resources folder to be uploaded to AWS S3 Bucket
+                className, encodedFace = s3Uploader.uploadImageToS3Bucket(str(fileLoc))
+                classNames.append(className)  # add new class name fo the face after successful upload
+                encodedTargetFaces.append(encodedFace)  # add new encoded face values
+                name = ""  # reset name state
+                readyToSafe = False  # reset the state that data is now has been consumed
+
         _, image = cap.read()
         if not readyToSafe:
             imageSmall = cv2.cvtColor(cv2.resize(image, (0, 0), None, 0.25, 0.25),
@@ -47,40 +84,11 @@ while True:
                 else:
                     if 0 < len(face_recognition.face_locations(image)) <= 1:
                         detectUnrecognizedFace = True
+                        triggerVoice = True
                         renderRectangleAndText(image, "Hi, what is your name?")
+                        sleep(2)
         else:
             cv2.putText(image, "Please stay still for me to remember you", (100, 350), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-        key = cv2.waitKey(1) & 0xFF  # define key variable for any keyboard event
-        if key == ord('q'):  # break the look when user press q
-            break
-        elif key == ord('a') and detectUnrecognizedFace:
-            # when the system detect an unrecognized face and when user press 'a'
-            # the bot will ask the face's owner name
-            print("I don't I have met you yet.")
-            print("What is your name?")
-            name = input("Answer: ")
-            print(f"Hi {name}. I will remember you")
-            readyToSafe = True  # set the flag that data is ready to be safe
-
-            # set the flag the let the system know that the face's owner is not that unrecognizable
-            detectUnrecognizedFace = False
-            continue  # go back to the start of the while loop
-        elif key == ord('s') and readyToSafe:
-            # when data is ready to be safe, the bot will ask the user to stay still for it to remember out face
-            print("Ready To Upload")
-            fileName = re.sub("\s+", "-", name.lower().strip())
-            fileLoc = "resources/"+fileName+".png"
-            cv2.imwrite(fileLoc, image)  # temporarily create a png file to resources folder
-
-            if os.path.exists(fileLoc):
-                # refer the file from resources folder to be uploaded to AWS S3 Bucket
-                className, encodedFace = s3Uploader.uploadImageToS3Bucket(str(fileLoc))
-                classNames.append(className)  # add new class name fo the face after successful upload
-                encodedTargetFaces.append(encodedFace)  # add new encoded face values
-                name = ""  # reset name state
-                readyToSafe = False  # reset the state that data is now has been consumed
-
         cv2.imshow("Webcam Image", image)
     except:
         print("Camera is not connected --> Trying to Reconnect")

@@ -1,5 +1,3 @@
-import cv2
-import face_recognition
 import numpy as np
 import urllib.request
 import os
@@ -8,7 +6,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 import face_recognition
 import cv2
-
+from time import sleep
 load_dotenv()
 BACK_END_URL = os.environ.get("BACKEND_BASE_URL")
 
@@ -34,13 +32,18 @@ def findEncoding(targetImages):
     return encodedImages
 
 def getClassNameAndEncodings():
+    sleep(2)
     encodedTargetFaces = []
     classNames = []
-    faceIdentities = requests.get(f"{BACK_END_URL}/api/face-identities/encoded").json()
-    if(faceIdentities):
-        classNames = list(map(lambda fi: fi["name"], faceIdentities))
-        encodedTargetFaces = list(map(lambda fi: fi["encodedFace"], faceIdentities))
-    return classNames, encodedTargetFaces
+    try:
+        faceIdentities = requests.get(f"{BACK_END_URL}/api/face-identities/encoded").json()
+        if (faceIdentities):
+            classNames = list(map(lambda fi: fi["name"], faceIdentities))
+            encodedTargetFaces = list(map(lambda fi: fi["encodedFace"], faceIdentities))
+        return classNames, encodedTargetFaces
+    except:
+        print("Server Connection Error: Attempting to reconnect")
+        getClassNameAndEncodings()
 
 def renderRectangleAndText(image, text):
     t, r, b, l = face_recognition.face_locations(image)[0]
