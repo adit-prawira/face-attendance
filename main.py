@@ -31,8 +31,7 @@ while True:
         key = cv2.waitKey(1) & 0xFF  # define key variable for any keyboard event
         if key == ord('q'):  # break the look when user press q
             break
-        elif triggerVoice and detectUnrecognizedFace:
-
+        elif triggerVoice and detectUnrecognizedFace and key == ord('a'):
             # when the system detect an unrecognized face and when user press 'a'
             # the bot will ask the face's owner name
             # print("I don't I have met you yet.")
