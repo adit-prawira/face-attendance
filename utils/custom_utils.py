@@ -7,7 +7,6 @@ load_dotenv()
 BACK_END_URL = os.environ.get("BACKEND_BASE_URL")
 
 def getClassNameAndEncodings():
-    sleep(2)
     encodedTargetFaces = []
     classNames = []
     try:
@@ -15,8 +14,9 @@ def getClassNameAndEncodings():
         if (faceIdentities):
             classNames = list(map(lambda fi: fi["name"], faceIdentities))
             encodedTargetFaces = list(map(lambda fi: fi["encodedFace"], faceIdentities))
-        return classNames, encodedTargetFaces
+            return classNames, encodedTargetFaces
     except:
         print("Server Connection Error: Attempting to reconnect")
+        sleep(2)
         getClassNameAndEncodings()
 

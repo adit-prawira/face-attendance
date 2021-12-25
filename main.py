@@ -4,11 +4,11 @@ import face_recognition
 import os
 from dotenv import load_dotenv
 import re
-from utils.aws_s3_config import AwsS3Image
+from utils.aws_s3_image import AwsS3Image
 from utils.custom_utils import getClassNameAndEncodings
 from utils.voice_assistant import VoiceAssistant
 import logging
-from threading import Thread
+from threading import Thread, enumerate as enamurateThreads
 from queue import Queue
 
 load_dotenv()
@@ -19,10 +19,11 @@ q = Queue(BUF_SIZE)
 VOICE_ASSISTANT_THREAD_NAME = "VoiceAssistant"
 FACE_RECOGNITION_THREAD_NAME = "FaceRecognition"
 S3_IMAGE_UPLOADER_THREAD_NAME = "S3ImageUploader"
+ALL_THREADS = "AllThreads"
 
 
 class Package:
-    def __init__(self, sentTo, sentFrom, consumed:bool, content):
+    def __init__(self, sentTo: str, sentFrom: str, consumed: bool, content: any):
         self.sentTo = sentTo
         self.sentFrom = sentFrom
         self.consumed = consumed
@@ -52,6 +53,7 @@ class S3ImageUploaderThread(Thread):
         while True:
             if not q.empty() and len(list(q.queue)) > 0:
                 item = list(q.queue)[0]
+
                 if isinstance(item, Package):
                     if item.json()["sentFrom"] == FACE_RECOGNITION_THREAD_NAME and\
                             item.json()["sentTo"] == self.getName():
@@ -72,6 +74,11 @@ class S3ImageUploaderThread(Thread):
                             q.put(packageToMain)
                             logging.debug(f"Putting {str(item)}: {str(q.qsize())} items in queue")
 
+                    elif item.json()["sentFrom"] == FACE_RECOGNITION_THREAD_NAME and\
+                            item.json()["sentTo"] == ALL_THREADS:
+                        logging.debug("Terminating...")
+                        break
+
 
 class VoiceAssistantThread(Thread):
     def __init__(self, group=None, target=None, name=None, args=(), kwargs=None, verbose=None):
@@ -81,38 +88,62 @@ class VoiceAssistantThread(Thread):
         self.voice = VoiceAssistant()
         self.faceName = ""
 
+    def __cancel(self):
+        self.voice.speak("Cancelling")
+        item = Package(FACE_RECOGNITION_THREAD_NAME, self.getName(), True, {"cancel": True, "value": self.faceName})
+        q.put(item)
+        logging.debug(f"Putting {str(item)}: {str(q.qsize())} items in queue")
+
+    def __save(self):
+        self.voice.speak("Saving in")
+        self.voice.speak("3")
+        self.voice.speak("2")
+        self.voice.speak("1")
+        item = Package(FACE_RECOGNITION_THREAD_NAME, self.getName(), True, {"cancel": False, "value": self.faceName})
+        q.put(item)
+        logging.debug(f"Putting {str(item)}: {str(q.qsize())} items in queue")
+
+    def __isCancelling(self, answer):
+        return "cancel" in str(answer).strip().lower() or "shut up" in str(answer).strip().lower() or\
+               "no" in str(answer).strip().lower()
+
+    def __isProceeding(self, answer): return "yes" in str(answer).strip().lower()
+
     def run(self):
         while True:
             if not q.empty() and len(list(q.queue)) > 0:
                 item = list(q.queue)[0]
+
                 if isinstance(item, Package):
                     if item.json()["sentFrom"] == FACE_RECOGNITION_THREAD_NAME and\
-                            item.json()["sentTo"]==self.getName():
+                            item.json()["sentTo"] == self.getName():
                         item = q.get()
                         logging.debug(f"Getting {str(item)}: {str(q.qsize())} items in queue")
-                        self.voice.speak("Unrecognized has been detected")
+
+                        self.voice.speak("Face is unrecognized")
                         self.voice.speak("Who is that?")
                         self.faceName = self.voice.getAudio()
-                        self.voice.speak(f"Please wait {self.faceName}. I'm attempting to memorize your face")
-                        self.voice.speak("Do you want me to save face?")
-                        answer = self.voice.getAudio()
-                        if "yes" in str(answer).strip().lower():
-                            self.voice.speak("Proceed to save")
-                            item = Package(FACE_RECOGNITION_THREAD_NAME, self.getName(), True,
-                                           {"cancel": False, "value": self.faceName})
-                            q.put(item)
-                            logging.debug(f"Putting {str(item)}: {str(q.qsize())} items in queue")
+                        if self.__isCancelling(self.faceName):
+                            self.__cancel()
+                        # should check whether or not that name exists in the existing classNames
                         else:
-                            self.voice.speak("Cancelling")
-                            item = Package(FACE_RECOGNITION_THREAD_NAME, self.getName(), True,
-                                           {"cancel": True, "value":self.faceName})
-                            q.put(item)
-                            logging.debug(f"Putting {str(item)}: {str(q.qsize())} items in queue")
+                            self.voice.speak(f"Please stay still {self.faceName}. I'm attempting to memorize your face")
+                            self.voice.speak("Proceed to safe?")
+                            answer = self.voice.getAudio()
+                            if self.__isProceeding(answer):
+                                self.__save()
+                            else:
+                                self.__cancel()
+                    elif item.json()["sentFrom"] == FACE_RECOGNITION_THREAD_NAME and \
+                            item.json()["sentTo"] == ALL_THREADS:
+                        logging.debug("Terminating...")
+                        break
+
 
 class FaceRecognition:
-    def __init__(self):
+    def __init__(self, classNames, encodedTargetFaces):
         self.name = FACE_RECOGNITION_THREAD_NAME
-        self.classNames, self.encodedTargetFaces = getClassNameAndEncodings()
+        self.classNames, self.encodedTargetFaces = classNames, encodedTargetFaces
         self.cap = cv2.VideoCapture(int(os.environ.get("LAPTOP_CAM_CODE")))
         self.detectedOnce = False
 
@@ -162,24 +193,35 @@ class FaceRecognition:
         cv2.putText(frame, "Who are you?", (left, bottom + 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         return top, right, bottom, left
 
+    def __kill(self):
+        print("Threads to kill", enamurateThreads())
+        terminationPackage = Package(ALL_THREADS, self.getName(), False, {"terminate": True})
+        q.put(terminationPackage)
+        logging.debug("Putting termination package")
+
     def run(self):
         while True:
-            if not q.full() :
+            if not q.full():
                 try:
                     _, frame = self.cap.read()
                     key = cv2.waitKey(1) & 0xFF  # define key variable for any keyboard event
-
-                    if key == ord('q'):  # break the look when user press q
-                        break
+                    if key == ord('k'):  # break the look when user press q
+                        self.__kill()
+                    elif key == ord('q'):
+                        if len(enamurateThreads()) > 1:
+                            logging.debug("Press 'k' to kill all the remaining threads")
+                        else:
+                            break
 
                     faceLocations, encodedFaces = self.__getFaces(frame)
-
                     for encodedFace, faceLocation in zip(encodedFaces, faceLocations):
                         matches, faceDistances = self.__getMatchesAndDistances(encodedFace)
                         matchedIndex = np.argmin(faceDistances)  # get the index of the lowest faceDistance value
                         minimumDistance = faceDistances[matchedIndex]  # get the value of the lowest distance value
                         similarityPercentage = round((100 - minimumDistance * 100), 2)
-                        if matches[matchedIndex] and similarityPercentage > 55:
+
+                        if matches[matchedIndex] and len(list(filter(lambda x: x , matches))) > 0 and\
+                                similarityPercentage > 45:
                             self.__renderMatch(frame, matchedIndex, similarityPercentage, faceLocation)
                         else:
                             if not self.detectedOnce:
@@ -214,21 +256,29 @@ class FaceRecognition:
                                         self.classNames.append(receive["className"])  # add new class name fo the face after successful upload
                                         self.encodedTargetFaces.append(receive["encodedFace"])  # add new encoded face values
                                         self.detectedOnce = False
-
                     cv2.imshow("Webcam Image", frame)
                 except:
                     print("Camera is not connected --> Trying to Reconnect")
         self.cap.release()
         cv2.destroyAllWindows()
 
+
 if __name__ == "__main__":
-    fr = FaceRecognition()
+    classNames, encodedTargetFaces = None, None
+    while True:
+        if getClassNameAndEncodings():
+            classNames, encodedTargetFaces = getClassNameAndEncodings()
+            break
+    fr = FaceRecognition(classNames, encodedTargetFaces)
     v = VoiceAssistantThread(name=VOICE_ASSISTANT_THREAD_NAME)
     s3 = S3ImageUploaderThread(name=S3_IMAGE_UPLOADER_THREAD_NAME)
     s3.start()
     v.start()
+
     fr.run()
 
+    s3.join()
+    v.join()
 
 
 
