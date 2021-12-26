@@ -10,7 +10,7 @@ from utils.voice_assistant import VoiceAssistant
 import logging
 from threading import Thread, enumerate as enamurateThreads
 from queue import Queue
-
+from time import sleep
 load_dotenv()
 logging.basicConfig(level=logging.DEBUG, format='(%(threadName)-9s) %(message)s',)
 
@@ -51,33 +51,33 @@ class S3ImageUploaderThread(Thread):
 
     def run(self):
         while True:
-            if not q.empty() and len(list(q.queue)) > 0:
-                item = list(q.queue)[0]
+            if not q.empty():
+                if len(list(q.queue)) > 0:
+                    item = list(q.queue)[0]
+                    if isinstance(item, Package):
+                        if item.json()["sentFrom"] == FACE_RECOGNITION_THREAD_NAME and\
+                                item.json()["sentTo"] == self.getName():
+                            item = q.get().json()["content"]
+                            logging.debug(f"Getting {str(item)}: {str(q.qsize())} items in queue")
+                            fileName = re.sub("\s+", "-", item["name"].lower().strip())
+                            fileLoc = "resources/" + fileName + ".png"
+                            cv2.imwrite(fileLoc, item["roi"])  # temporarily create a png file to resources folder
 
-                if isinstance(item, Package):
-                    if item.json()["sentFrom"] == FACE_RECOGNITION_THREAD_NAME and\
-                            item.json()["sentTo"] == self.getName():
-                        item = q.get().json()["content"]
-                        logging.debug(f"Getting {str(item)}: {str(q.qsize())} items in queue")
-                        fileName = re.sub("\s+", "-", item["name"].lower().strip())
-                        fileLoc = "resources/" + fileName + ".png"
-                        cv2.imwrite(fileLoc, item["roi"])  # temporarily create a png file to resources folder
+                            if os.path.exists(fileLoc):
+                                # refer the file from resources folder to be uploaded to AWS S3 Bucket
+                                className, encodedFace = self.s3Uploader.uploadImageToS3Bucket(str(fileLoc))
+                                content = {
+                                    "className": className,
+                                    "encodedFace": encodedFace
+                                }
+                                packageToMain = Package(FACE_RECOGNITION_THREAD_NAME, self.getName(), True, content)
+                                q.put(packageToMain)
+                                logging.debug(f"Putting {str(item)}: {str(q.qsize())} items in queue")
 
-                        if os.path.exists(fileLoc):
-                            # refer the file from resources folder to be uploaded to AWS S3 Bucket
-                            className, encodedFace = self.s3Uploader.uploadImageToS3Bucket(str(fileLoc))
-                            content = {
-                                "className": className,
-                                "encodedFace": encodedFace
-                            }
-                            packageToMain = Package(FACE_RECOGNITION_THREAD_NAME, self.getName(), True, content)
-                            q.put(packageToMain)
-                            logging.debug(f"Putting {str(item)}: {str(q.qsize())} items in queue")
-
-                    elif item.json()["sentFrom"] == FACE_RECOGNITION_THREAD_NAME and\
-                            item.json()["sentTo"] == ALL_THREADS:
-                        logging.debug("Terminating...")
-                        break
+                        elif item.json()["sentFrom"] == FACE_RECOGNITION_THREAD_NAME and\
+                                item.json()["sentTo"] == ALL_THREADS:
+                            logging.debug("Terminating...")
+                            break
 
 
 class VoiceAssistantThread(Thread):
@@ -104,8 +104,8 @@ class VoiceAssistantThread(Thread):
         logging.debug(f"Putting {str(item)}: {str(q.qsize())} items in queue")
 
     def __isCancelling(self, answer):
-        return "cancel" in str(answer).strip().lower() or "shut up" in str(answer).strip().lower() or\
-               "no" in str(answer).strip().lower()
+        normalizedAnswer = answer.lower().strip()
+        return "cancel" in normalizedAnswer or "shut up" in normalizedAnswer
 
     def __isProceeding(self, answer): return "yes" in str(answer).strip().lower()
 
@@ -113,21 +113,20 @@ class VoiceAssistantThread(Thread):
         while True:
             if not q.empty() and len(list(q.queue)) > 0:
                 item = list(q.queue)[0]
-
                 if isinstance(item, Package):
                     if item.json()["sentFrom"] == FACE_RECOGNITION_THREAD_NAME and\
                             item.json()["sentTo"] == self.getName():
                         item = q.get()
                         logging.debug(f"Getting {str(item)}: {str(q.qsize())} items in queue")
-
                         self.voice.speak("Face is unrecognized")
-                        self.voice.speak("Who is that?")
+                        self.voice.speak("Who is it?")
                         self.faceName = self.voice.getAudio()
+                        logging.debug(self.faceName)
                         if self.__isCancelling(self.faceName):
                             self.__cancel()
                         # should check whether or not that name exists in the existing classNames
                         else:
-                            self.voice.speak(f"Please stay still {self.faceName}. I'm attempting to memorize your face")
+                            self.voice.speak(f"Please stay still. I'm attempting to memorize {self.faceName}'s face")
                             self.voice.speak("Proceed to safe?")
                             answer = self.voice.getAudio()
                             if self.__isProceeding(answer):
@@ -194,10 +193,15 @@ class FaceRecognition:
         return top, right, bottom, left
 
     def __kill(self):
-        print("Threads to kill", enamurateThreads())
+        if len(list(q.queue)) > 0:
+            with q.mutex:
+                q.queue.clear()
         terminationPackage = Package(ALL_THREADS, self.getName(), False, {"terminate": True})
         q.put(terminationPackage)
         logging.debug("Putting termination package")
+        while len(enamurateThreads()) > 1:
+            logging.debug("Waiting for all threads to be terminated...")
+            sleep(1)
 
     def run(self):
         while True:
@@ -205,13 +209,13 @@ class FaceRecognition:
                 try:
                     _, frame = self.cap.read()
                     key = cv2.waitKey(1) & 0xFF  # define key variable for any keyboard event
-                    if key == ord('k'):  # break the look when user press q
-                        self.__kill()
+                    if key == ord('r'):
+                        logging.debug("Refreshing...")
+                        self.detectedOnce = False
                     elif key == ord('q'):
-                        if len(enamurateThreads()) > 1:
-                            logging.debug("Press 'k' to kill all the remaining threads")
-                        else:
-                            break
+                        self.__kill()
+
+                        break
 
                     faceLocations, encodedFaces = self.__getFaces(frame)
                     for encodedFace, faceLocation in zip(encodedFaces, faceLocations):
@@ -236,7 +240,7 @@ class FaceRecognition:
                                     if receive.json()["sentFrom"] == VOICE_ASSISTANT_THREAD_NAME:
                                         receive = q.get().json()
                                         if receive["content"]["cancel"]:
-                                            print("Reset detection status")
+                                            logging.debug("Reset detection status")
                                             self.detectedOnce = False
                                         else:
                                             logging.debug(f"Getting {str(receive)}: {str(q.qsize())} items in queue")
