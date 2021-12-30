@@ -16,7 +16,8 @@ Below is the diagram that pretty much describes how the system interacts with th
 
 
 ### Snapshot 2:
-![Uploading sample2.png…]()
+![sample2](https://user-images.githubusercontent.com/61646199/147732853-7a48b2c9-7576-42c6-b9b6-2e58da3d1d7a.png)
+
 
 ## How to use the client-side:
 
