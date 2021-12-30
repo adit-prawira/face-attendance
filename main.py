@@ -143,7 +143,7 @@ class FaceRecognition:
     def __init__(self, classNames, encodedTargetFaces):
         self.name = FACE_RECOGNITION_THREAD_NAME
         self.classNames, self.encodedTargetFaces = classNames, encodedTargetFaces
-        self.cap = cv2.VideoCapture(int(os.environ.get("LAPTOP_CAM_CODE")))
+        self.cap = cv2.VideoCapture(int(os.environ.get("WEBCAM_CODE")))
         self.detectedOnce = False
 
     def getName(self): return self.name

@@ -5,7 +5,17 @@ The following repository represents the client-side software for the Face Attend
 As a face is unrecognized, this event will trigger the voice assistant that will ask the name of that face and will wait for the user to say the name of that face through the microphone. The voice assistant loves to play defensive as it doesn’t want to make any mistakes and makes the human hate it. Thus, it asks the user for confirmation if the name is right and does the user allow the computer to memorize his or her face. If the user says anything that indicates anything to proceed to the next step, then the voice assistant will send a signal to the face recognition system to get the ROI of the face and send that data to the S3 image uploader.
 
 Finally, the S3 image uploader will convert the array of the face’s ROI into an image, upload it to S3 and return a link to access those images to the client-side. Then the name of the face and the received image URL will be sent to the server and will be stored in the database. As the back response, the server will return the new face data along with its id, name, and its encoded values which will the added to the current name list, and encoded face lists state.
-Below is the diagram that pretty much describes how the system interacts with the user and how the client-side communicate with the server-side. (*The same diagram is used in https://github.com/adit-prawira/face_attendance_server)
+Below is the diagram that pretty much describes how the system interacts with the user and how the client-side communicate with the server-side. (The same diagram is used in https://github.com/adit-prawira/face_attendance_server)
+
+
+
+## Sample Outputs:
+
+### Snapshot 1:
+
+
+
+### Snapshot 2:
 
 
 
