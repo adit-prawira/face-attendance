@@ -7,17 +7,16 @@ As a face is unrecognized, this event will trigger the voice assistant that will
 Finally, the S3 image uploader will convert the array of the face’s ROI into an image, upload it to S3 and return a link to access those images to the client-side. Then the name of the face and the received image URL will be sent to the server and will be stored in the database. As the back response, the server will return the new face data along with its id, name, and its encoded values which will the added to the current name list, and encoded face lists state.
 Below is the diagram that pretty much describes how the system interacts with the user and how the client-side communicate with the server-side. (The same diagram is used in https://github.com/adit-prawira/face_attendance_server)
 
-
+![FaceIdentityProject drawio](https://user-images.githubusercontent.com/61646199/147732798-5386d306-9011-436f-b35f-7a69508c73e8.png)
 
 ## Sample Outputs:
 
 ### Snapshot 1:
-
+![sample1](https://user-images.githubusercontent.com/61646199/147732805-b2c13f77-96e2-4224-ae10-c1216a86907f.png)
 
 
 ### Snapshot 2:
-
-
+![Uploading sample2.png…]()
 
 ## How to use the client-side:
 
