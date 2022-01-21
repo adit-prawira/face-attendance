@@ -11,6 +11,8 @@ import logging
 from threading import Thread, enumerate as enamurateThreads
 from queue import Queue
 from time import sleep
+from utils.package import Package
+
 load_dotenv()
 logging.basicConfig(level=logging.DEBUG, format='(%(threadName)-9s) %(message)s',)
 
@@ -20,23 +22,6 @@ VOICE_ASSISTANT_THREAD_NAME = "VoiceAssistant"
 FACE_RECOGNITION_THREAD_NAME = "FaceRecognition"
 S3_IMAGE_UPLOADER_THREAD_NAME = "S3ImageUploader"
 ALL_THREADS = "AllThreads"
-
-
-class Package:
-    def __init__(self, sentTo: str, sentFrom: str, consumed: bool, content: any):
-        self.sentTo = sentTo
-        self.sentFrom = sentFrom
-        self.consumed = consumed
-        self.content = content
-
-    def json(self):
-        return {
-            "sentTo": self.sentTo,
-            "sentFrom": self.sentFrom,
-            "consumed": self.consumed,
-            "content": self.content,
-        }
-
 
 class S3ImageUploaderThread(Thread):
     def __init__(self, group=None, target=None, name=None, args=(), kwargs=None, verbose=None):
@@ -108,6 +93,13 @@ class VoiceAssistantThread(Thread):
         return "cancel" in normalizedAnswer or "shut up" in normalizedAnswer
 
     def __isProceeding(self, answer): return "yes" in str(answer).strip().lower()
+    def __askUser(self):
+        self.voice.speak("Face is unrecognized")
+        self.voice.speak("Who is it?")
+        self.faceName = self.voice.getAudio()
+    def __askToProceed(self):
+        self.voice.speak(f"Please stay still. I'm attempting to memorize {self.faceName}'s face")
+        self.voice.speak("Proceed to safe?")
 
     def run(self):
         while True:
@@ -118,16 +110,13 @@ class VoiceAssistantThread(Thread):
                             item.json()["sentTo"] == self.getName():
                         item = q.get()
                         logging.debug(f"Getting {str(item)}: {str(q.qsize())} items in queue")
-                        self.voice.speak("Face is unrecognized")
-                        self.voice.speak("Who is it?")
-                        self.faceName = self.voice.getAudio()
+                        self.__askUser() # ask user of their name
                         logging.debug(self.faceName)
                         if self.__isCancelling(self.faceName):
                             self.__cancel()
                         # should check whether or not that name exists in the existing classNames
                         else:
-                            self.voice.speak(f"Please stay still. I'm attempting to memorize {self.faceName}'s face")
-                            self.voice.speak("Proceed to safe?")
+                            self.__askToProceed()
                             answer = self.voice.getAudio()
                             if self.__isProceeding(answer):
                                 self.__save()
@@ -143,7 +132,7 @@ class FaceRecognition:
     def __init__(self, classNames, encodedTargetFaces):
         self.name = FACE_RECOGNITION_THREAD_NAME
         self.classNames, self.encodedTargetFaces = classNames, encodedTargetFaces
-        self.cap = cv2.VideoCapture(int(os.environ.get("WEBCAM_CODE")))
+        self.cap = cv2.VideoCapture(int(os.environ.get("LAPTOP_CAM_CODE")))
         self.detectedOnce = False
 
     def getName(self): return self.name
@@ -214,18 +203,15 @@ class FaceRecognition:
                         self.detectedOnce = False
                     elif key == ord('q'):
                         self.__kill()
-
                         break
-
                     faceLocations, encodedFaces = self.__getFaces(frame)
                     for encodedFace, faceLocation in zip(encodedFaces, faceLocations):
                         matches, faceDistances = self.__getMatchesAndDistances(encodedFace)
                         matchedIndex = np.argmin(faceDistances)  # get the index of the lowest faceDistance value
                         minimumDistance = faceDistances[matchedIndex]  # get the value of the lowest distance value
                         similarityPercentage = round((100 - minimumDistance * 100), 2)
-
-                        if matches[matchedIndex] and len(list(filter(lambda x: x , matches))) > 0 and\
-                                similarityPercentage > 45:
+                        if matches[matchedIndex] and len(list(filter(lambda x: x, matches))) > 0 and\
+                                similarityPercentage > 49.5:
                             self.__renderMatch(frame, matchedIndex, similarityPercentage, faceLocation)
                         else:
                             if not self.detectedOnce:
@@ -273,6 +259,7 @@ if __name__ == "__main__":
         if getClassNameAndEncodings():
             classNames, encodedTargetFaces = getClassNameAndEncodings()
             break
+
     fr = FaceRecognition(classNames, encodedTargetFaces)
     v = VoiceAssistantThread(name=VOICE_ASSISTANT_THREAD_NAME)
     s3 = S3ImageUploaderThread(name=S3_IMAGE_UPLOADER_THREAD_NAME)
